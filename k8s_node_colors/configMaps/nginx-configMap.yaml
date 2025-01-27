@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-nginx
+  namespace: default
+data:
+  nginx.conf: |
+    events {}
+    http {
+        server {
+            listen 80;
+
+            location /red {
+                rewrite ^/red(/.*)?$ /$1 break;
+                proxy_pass http://red-service:80;
+            }
+
+            location /blue {
+                rewrite ^/blue(/.*)?$ /$1 break;
+                proxy_pass http://blue-service:80;
+            }
+        }
+    }

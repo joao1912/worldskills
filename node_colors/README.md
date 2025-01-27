@@ -1,0 +1,1 @@
+Api em node com uma rota / que recebe uma variavel de ambiente BG_COLOR e retorna um html com a cor de fundo

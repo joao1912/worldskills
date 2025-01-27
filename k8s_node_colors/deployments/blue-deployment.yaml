@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blue-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-blue
+  template:
+    metadata:
+      labels:
+        app: app-blue
+    spec:
+      containers:
+      - name: app-blue
+        image: joaopedrot1912/colors
+        env:
+          - name: BG_COLOR
+            valueFrom:
+              secretKeyRef:
+                name: color-name-secret
+                key: BG_COLOR_BLUE
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+          - containerPort: 80
+                
