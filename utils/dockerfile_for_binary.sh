@@ -8,6 +8,14 @@ COPY binario /app/binario
 
 RUN chmod +x /app/binario
 
+# se precisar fazer req https, precisa instalar esses pacotes
+#
+# RUN apk/apt-get update
+#
+# RUN apk/apt-get add/install --no-cache/-y ca-certificates
+#
+# RUN update-ca-certificates
+
 # Se necessario 
 # RUN set +H
 
