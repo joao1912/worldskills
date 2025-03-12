@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-ingress-unicorn
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "alb-host"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: root-service
+                port:
+                  number: 80
