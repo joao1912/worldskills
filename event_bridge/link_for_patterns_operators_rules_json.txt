@@ -1,0 +1,1 @@
+https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-pattern-operators.html
