@@ -1,0 +1,309 @@
+-- Receber um ou mais binários para rodar em container do eks que depende de um banco RDS e cache --
+-- Serviços e Tecnologias Usadas:
+  - RDS
+  - cache
+  - eks
+  - ECR
+  - SecretsManager
+  - CloudShell
+  - eksctl
+  - helm
+  - IAM
+  - EC2
+
+# Criar a vpc
+  - 2 SubNets publica e privada ()
+  - NAT GTW se necessitar se conectar com a internet ()
+  - Tags ()
+
+# Criar os grupos de segurança (ec2 (bastion), redis, rds)
+
+# Criar o banco RDS
+  - Usar o SecretsManager para salvar as credenciais. ()
+  - Ativar proteção contra exclusão. ()
+  - Usar o tamanho apropriado. ()
+
+# Criar o cache redis.
+  - Ativar o cluster mode APENAS se compativel com a aplicação. ()
+  - Usar o tamanho apropriado. ()
+
+# Criar os repositórios para as imagens docker
+  -
+
+# Criar a ec2 (bastion)
+  - Enviar os binários para a ec2. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - local ] {
+
+    scp -i /caminho/para/chave.pem ./binario ec2-user@hostIp:/home/ec2-user/binario
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+  
+  - Salvar os ENV's dos binarios em arquivos para facilatar a utilização. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - root.env ] {
+
+    export DB_NAME="name"
+    export DB_PASSWORD="password"
+
+  }
+  
+  [ bash ~/ ] {
+
+    source root.env
+    
+    //* Isso vai fazer com que todas as variaveis dentro do arquivo sejam definidas como Env do ambiente da maquina.
+
+  }
+  
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Colocar o binário para funcionar e testar. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - ~/ ] {
+
+    sudo -E ./root
+
+    //* Deve usar o -E para fazer com que o bin use as variaveis de ambiente da maquina, usar o sudo é necessario pois geralmente o bin vai querer usar uma porta 'protegida'
+
+    sudo -e var1="valor" ./stub --flag="valor"
+
+    //* Pode ser necessario usar 'set +H' para fazer o bash aceitar algumas string expecificas, use somente se algo der conflito com bash.
+
+  }
+ 
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Colocar o bin dentro de uma imagem docker e testar a execução. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - Dockerfile ] {
+
+    FROM alpine:latest
+
+    # if x86 ? debian:latest : alpine:latest
+
+    WORKDIR /app
+
+    COPY binario /app/binario
+
+    RUN chmod +x /app/binario
+
+    # se precisar fazer req https, precisa instalar esses pacotes
+    #
+    # RUN apk/apt-get update
+    #
+    # RUN apk/apt-get add/install --no-cache/-y ca-certificates
+    #
+    # RUN update-ca-certificates
+
+    # Se necessario 
+    # RUN set +H
+
+    EXPOSE 80
+
+    CMD ["/app/binario"]
+
+  }
+
+  [ bash - ~/ ] {
+
+    docker build root_app .
+
+    docker run -d --network=host -e var1="valor" root_app
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Instalar os utilitários. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - ~/ ] {
+
+    //* Deve instalar ele de acordo com o tipo de banco usado e o tipo de AMI da ec2.
+    //* Exemplo com mysql e AmazonLinux2023
+
+    sudo dnf install mariadb105 -y
+
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Criar o banco via sql usando um client. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - ~/ ] {
+
+    //* Deve usar de acordo com o tipo de banco usado.
+    //* Exemplo com mysql.
+
+    mysql -h host_do_banco -u usuario_do_banco -p
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Publicar no ECR a imagem ()
+  //* Usar os comandos entregues no console do ECR.
+
+# Criar o eks via eksctl no cloudshell
+  - instalar o eksctl e helm no shell. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ cloudshell - ~/ ] {
+
+    //* eksctl
+
+    //* for ARM systems, set ARCH to: `arm64`, `armv6` or `armv7`
+    ARCH=amd64
+    PLATFORM=$(uname -s)_$ARCH
+
+    curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$PLATFORM.tar.gz"
+
+    //* (Optional) Verify checksum
+    curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_checksums.txt" | grep $PLATFORM | sha256sum --check
+
+    tar -xzf eksctl_$PLATFORM.tar.gz -C /tmp && rm eksctl_$PLATFORM.tar.gz
+
+    sudo mv /tmp/eksctl /usr/local/bin
+
+    //* helm
+
+    curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    chmod +x get_helm.sh
+    ./get_helm.sh
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+
+# Criar a policy que vai ser usada pelos pods para acessar os serviços AWS. ()
+  -
+
+# Criar o eks cluster via eksctl. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ cloudshell - ~/ ] {
+
+   eksctl create cluster \
+    --name cluster-name \
+    --region us-east-1 \
+    --nodegroup-name group-name \
+    --node-type t2.medium \
+    --nodes 1 \
+    --nodes-min 1 \
+    --nodes-max 1 \
+    --vpc-private-subnets subnetId1,subnetId2 \
+    --node-private-networking \
+    --node-ami-family AmazonLinux2023
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+# Criar o service account via eksctl. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ cloudshell - ~/ ] {
+
+  //* Precisa ativar isso antes
+
+  eksctl utils associate-iam-oidc-provider \
+    --region us-east-1 \
+    --cluster cluster-name \
+    --approve
+
+
+  //* Para o comando funcionar, deve ter somente a policy pronta, o resto(iam e ServiceAccount) ele cria sozinho, depois é só associar essa ServiceAccount a algum serviço como pod.
+  //* o nome do service account deve ser inteiramente minusculo
+
+  eksctl create iamserviceaccount --name my-service-account --namespace default --cluster my-cluster --role-name my-role \
+      --attach-policy-arn arn:aws:iam::111122223333:policy/my-policy --approve
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+# Instalar o load-balancer-controller via eksctl e helm. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  //* Para facilitar o uso, vai se instalado o nginx-controller e o ELB-controller, o nginx para proxy reverso e o ELB para expor o serviço.
+
+  [ cloudshell - ~/ ] {
+
+    //* Deve colocar tags nas subnetes para que o ELB consiga trabalhar.
+
+    //* TAGS PARA SUBNET PUB
+    //* (tag) = kubernetes.io/role/elb | (valor) = 1
+    //*
+    //* TAGS PARA SUBNET PRIV
+    //* 
+    //* (tag) = kubernetes.io/role/internal-elb | (valor) = 1
+
+    //* policy para o elb-ingress = https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.11.0/docs/install/iam_policy.json
+
+    //* se for criar a policy via cli, deve baixar em um arquivo iam_policy.json:
+    //* APENAS SE NECESSARIO
+
+    aws iam create-policy \
+        --policy-name AWSLoadBalancerControllerIAMPolicy \
+        --policy-document file://iam_policy.json
+
+    //* criar serviceaccount
+
+    eksctl create iamserviceaccount \
+      --cluster=my-cluster \
+      --namespace=kube-system \
+      --name=aws-load-balancer-controller \
+      --role-name AmazonEKSLoadBalancerControllerRole \
+      --attach-policy-arn=arn:aws:iam::111122223333:policy/AWSLoadBalancerControllerIAMPolicy \
+      --approve
+
+    //* add repo
+
+    helm repo add eks https://aws.github.io/eks-charts
+
+    //* update repo
+
+    helm repo update eks
+
+    //* instalar
+
+    helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+      -n kube-system \
+      --set clusterName=my-cluster \
+      --set serviceAccount.create=false \
+      --set serviceAccount.name=aws-load-balancer-controller
+
+    //* verificar
+
+    kubectl get deployment -n kube-system aws-load-balancer-controller
+
+  }
+
+  [ cloudshell - ~/ ] {
+
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+
+    kubectl create namespace nginx-ingress
+
+    helm install ingress-nginx ingress-nginx/ingress-nginx \
+    --namespace nginx-ingress \
+    --set controller.metrics.enabled=true \
+    --set-string controller.metrics.service.annotations."prometheus\.io/port"="10254" \
+    --set-string controller.metrics.service.annotations."prometheus\.io/scrape"="true"
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+# Criar os recursos dentro do k8s (deploy, service, ingress). ()
+  //* files em ~/worldskills/k8s/infra/
