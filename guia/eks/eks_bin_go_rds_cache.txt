@@ -28,7 +28,8 @@
   - Usar o tamanho apropriado. ()
 
 # Criar os repositórios para as imagens docker
-  -
+  - Habilitar Scanning on Push. ()
+  - Definir uma política de lifecycle. ()
 
 # Criar a ec2 (bastion)
   - Enviar os binários para a ec2. ()
@@ -304,6 +305,8 @@
   }
 
   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+# Alterar o SecuriryGroup da ec2 Node que roda o EKS ter acesso aos recursos necessarios: RDS, cache, ECR e outros se necessario.
 
 # Criar os recursos dentro do k8s (deploy, service, ingress). ()
   //* files em ~/worldskills/k8s/infra/
