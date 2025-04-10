@@ -63,6 +63,21 @@
   
   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
+    - Instalar os utilitários. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - ~/ ] {
+
+    //* Deve instalar ele de acordo com o tipo de banco usado e o tipo de AMI da ec2.
+    //* Exemplo com mysql e AmazonLinux2023
+
+    sudo dnf install mariadb105 -y
+
+
+  }
+
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
   - Criar o banco via sql usando um client. ()
   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
@@ -131,21 +146,6 @@
     docker build root_app .
 
     docker run -d --network=host -e var1="valor" root_app
-
-  }
-
-  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-
-  - Instalar os utilitários. ()
-  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-
-  [ bash - ~/ ] {
-
-    //* Deve instalar ele de acordo com o tipo de banco usado e o tipo de AMI da ec2.
-    //* Exemplo com mysql e AmazonLinux2023
-
-    sudo dnf install mariadb105 -y
-
 
   }
 
