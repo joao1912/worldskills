@@ -143,9 +143,9 @@
 
   [ bash - ~/ ] {
 
-    docker build root_app .
+    docker build -t app .
 
-    docker run -d --network=host -e var1="valor" root_app
+    docker run -d --network=host -e var1="valor" app
 
   }
 
