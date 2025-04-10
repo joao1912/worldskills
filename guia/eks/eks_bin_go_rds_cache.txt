@@ -16,7 +16,7 @@
   - NAT GTW se necessitar se conectar com a internet ()
   - Tags ()
 
-# Criar os grupos de segurança (ec2 (bastion), redis, rds)
+# Criar os grupos de segurança (ec2 (bastion), redis, rds) ()
 
 # Criar o banco RDS
   - Usar o SecretsManager para salvar as credenciais. ()
@@ -61,6 +61,20 @@
 
   }
   
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  - Criar o banco via sql usando um client. ()
+  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+  [ bash - ~/ ] {
+
+    //* Deve usar de acordo com o tipo de banco usado.
+    //* Exemplo com mysql.
+
+    mysql -h host_do_banco -u usuario_do_banco -p
+
+  }
+
   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
   - Colocar o binário para funcionar e testar. ()
@@ -132,20 +146,6 @@
 
     sudo dnf install mariadb105 -y
 
-
-  }
-
-  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-
-  - Criar o banco via sql usando um client. ()
-  +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-
-  [ bash - ~/ ] {
-
-    //* Deve usar de acordo com o tipo de banco usado.
-    //* Exemplo com mysql.
-
-    mysql -h host_do_banco -u usuario_do_banco -p
 
   }
 
