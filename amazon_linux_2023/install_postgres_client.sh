@@ -1,6 +1,6 @@
 sudo dnf update
 
-sudo dnf install postgresql15
+sudo dnf install postgresql15 -y
 
 # Exemplo de uso
 

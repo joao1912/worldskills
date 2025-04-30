@@ -1,4 +1,4 @@
-sudo amazon-linux-extras install postgresql10
+sudo amazon-linux-extras install postgresql10 -y
 
 # Exemplo de uso
 
