@@ -24,5 +24,11 @@ sudo yum install iptables-services -y
 sudo systemctl enable iptables
 sudo systemctl start iptables
 
+# =============================================================== #
+
+# O SG DA EC2 DEVE PERMITIR TODO O TRAFEGO
+
+# =============================================================== #
+
 # Depois disso, precisa ir no console do ec2 e siga isso: EC2 → seleciono a instância → Actions → Networking → Change source/destination check e marca a checkbox 'stop'.
 # Isso precisa ser feito ou a AWS vai bloquear os pacotes roteados que é o padrão.
