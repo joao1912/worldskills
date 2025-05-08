@@ -32,6 +32,9 @@ for file in "$TMP_DIR"/*; do
   echo $ORDER_ID
 
   # Faz a requisição
+  #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  # Colocar o curl da req entregue e refatorar o necessario.
+  #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   curl -i -H "Accept: application/json" \
        -H "Content-Type: application/json" \
        -X POST \
@@ -44,3 +47,14 @@ for file in "$TMP_DIR"/*; do
   # Apaga o arquivo local
   rm -f "$file"
 done
+
+########
+# ================================================================
+# depois de criar o .sh e dar permissão de exec
+#
+crontab -e
+
+*/5 * * * * /home/ec2-user/job.sh >> /home/ec2-user/cronlogs.log 2>&1
+
+# vai executar a cada 5 min
+
