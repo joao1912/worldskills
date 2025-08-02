@@ -1,59 +1,212 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'ECS Fargate Stack with two applications - Generic template for challenges/demos'
+Description: 'Infraestrutura ECS Fargate com VPC, ALB, Target Groups e alta disponibilidade'
 
 Parameters:
+  # Configurações da VPC
+  VPCName:
+    Type: String
+    Default: 'MyVPC'
+    Description: 'Nome da VPC'
+  
+  VPCCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+    Description: 'CIDR da VPC'
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$'
+  
+  # Configuração de NAT Gateways
+  NATGatewayCount:
+    Type: Number
+    Default: 2
+    AllowedValues: [1, 2]
+    Description: 'Número de NAT Gateways (1 para economia, 2 para alta disponibilidade)'
+  
+  # Configurações do ECS
+  ECSClusterName:
+    Type: String
+    Default: 'MyECSCluster'
+    Description: 'Nome do cluster ECS'
+  
+  ECSFargateWeight:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 10
+    Description: 'Peso para instâncias Fargate regular (0-10)'
+  
+  ECSFargateSpotWeight:
+    Type: Number
+    Default: 4
+    MinValue: 0
+    MaxValue: 10
+    Description: 'Peso para instâncias Fargate Spot (0-10)'
+  
+  EnableContainerInsights:
+    Type: String
+    Default: 'enabled'
+    AllowedValues: [enabled, disabled]
+    Description: 'Habilitar Container Insights para monitoramento'
+  
+  # Configurações do ALB
+  ALBName:
+    Type: String
+    Default: 'MyApplicationLoadBalancer'
+    Description: 'Nome do Application Load Balancer'
+  
+  ALBScheme:
+    Type: String
+    Default: 'internet-facing'
+    AllowedValues: [internet-facing, internal]
+    Description: 'Esquema do ALB (internet-facing ou internal)'
+  
+  ALBListenerPort:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 65535
+    Description: 'Porta do listener do ALB'
+  
+  ALBListenerProtocol:
+    Type: String
+    Default: 'HTTP'
+    AllowedValues: [HTTP, HTTPS]
+    Description: 'Protocolo do listener do ALB'
+  
+  # Target Group 1
+  TargetGroup1Name:
+    Type: String
+    Default: 'TG-App1'
+    Description: 'Nome do primeiro Target Group'
+  
+  TargetGroup1Port:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 65535
+    Description: 'Porta do primeiro Target Group'
+  
+  TargetGroup1Protocol:
+    Type: String
+    Default: 'HTTP'
+    AllowedValues: [HTTP, HTTPS]
+    Description: 'Protocolo do primeiro Target Group'
+  
+  TargetGroup1HealthCheckPath:
+    Type: String
+    Default: '/health'
+    Description: 'Caminho do health check para o primeiro Target Group'
+  
+  TargetGroup1HealthCheckIntervalSeconds:
+    Type: Number
+    Default: 30
+    MinValue: 5
+    MaxValue: 300
+    Description: 'Intervalo do health check em segundos para o primeiro Target Group'
+  
+  TargetGroup1HealthCheckTimeoutSeconds:
+    Type: Number
+    Default: 5
+    MinValue: 2
+    MaxValue: 120
+    Description: 'Timeout do health check em segundos para o primeiro Target Group'
+  
+  TargetGroup1HealthyThresholdCount:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 10
+    Description: 'Número de checks consecutivos bem-sucedidos para considerar healthy'
+  
+  TargetGroup1UnhealthyThresholdCount:
+    Type: Number
+    Default: 3
+    MinValue: 2
+    MaxValue: 10
+    Description: 'Número de checks consecutivos falhados para considerar unhealthy'
+  
+  TargetGroup1HealthCheckStatusCodes:
+    Type: String
+    Default: '200'
+    Description: 'Códigos de status HTTP considerados como healthy (ex: 200,301-302)'
+  
+  # Target Group 2
+  TargetGroup2Name:
+    Type: String
+    Default: 'TG-App2'
+    Description: 'Nome do segundo Target Group'
+  
+  TargetGroup2Port:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 65535
+    Description: 'Porta do segundo Target Group'
+  
+  TargetGroup2Protocol:
+    Type: String
+    Default: 'HTTP'
+    AllowedValues: [HTTP, HTTPS]
+    Description: 'Protocolo do segundo Target Group'
+  
+  TargetGroup2HealthCheckPath:
+    Type: String
+    Default: '/health'
+    Description: 'Caminho do health check para o segundo Target Group'
+  
+  TargetGroup2HealthCheckIntervalSeconds:
+    Type: Number
+    Default: 30
+    MinValue: 5
+    MaxValue: 300
+    Description: 'Intervalo do health check em segundos para o segundo Target Group'
+  
+  TargetGroup2HealthCheckTimeoutSeconds:
+    Type: Number
+    Default: 5
+    MinValue: 2
+    MaxValue: 120
+    Description: 'Timeout do health check em segundos para o segundo Target Group'
+  
+  TargetGroup2HealthyThresholdCount:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 10
+    Description: 'Número de checks consecutivos bem-sucedidos para considerar healthy'
+  
+  TargetGroup2UnhealthyThresholdCount:
+    Type: Number
+    Default: 3
+    MinValue: 2
+    MaxValue: 10
+    Description: 'Número de checks consecutivos falhados para considerar unhealthy'
+  
+  TargetGroup2HealthCheckStatusCodes:
+    Type: String
+    Default: '200'
+    Description: 'Códigos de status HTTP considerados como healthy (ex: 200,301-302)'
+  
+  # Ambiente
   Environment:
     Type: String
-    Default: dev
+    Default: 'dev'
     AllowedValues: [dev, staging, prod]
-    Description: Environment name
-  
-  VpcCIDR:
-    Type: String
-    Default: 10.0.0.0/16
-    Description: CIDR block for VPC
-  
-  PublicSubnet1CIDR:
-    Type: String
-    Default: 10.0.1.0/24
-    Description: CIDR block for public subnet 1
-  
-  PublicSubnet2CIDR:
-    Type: String
-    Default: 10.0.2.0/24
-    Description: CIDR block for public subnet 2
-  
-  PrivateSubnet1CIDR:
-    Type: String
-    Default: 10.0.3.0/24
-    Description: CIDR block for private subnet 1
-  
-  PrivateSubnet2CIDR:
-    Type: String
-    Default: 10.0.4.0/24
-    Description: CIDR block for private subnet 2
+    Description: 'Ambiente da aplicação'
 
-  App1Image:
-    Type: String
-    Default: nginx:latest
-    Description: Container image for Application 1
-  
-  App2Image:
-    Type: String
-    Default: httpd:latest
-    Description: Container image for Application 2
+Conditions:
+  CreateTwoNATGateways: !Equals [!Ref NATGatewayCount, 2]
 
 Resources:
-  # VPC and Networking
+  # VPC
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: !Ref VpcCIDR
+      CidrBlock: !Ref VPCCidr
       EnableDnsHostnames: true
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-vpc
+          Value: !Ref VPCName
         - Key: Environment
           Value: !Ref Environment
 
@@ -63,7 +216,7 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-igw
+          Value: !Sub '${VPCName}-IGW'
         - Key: Environment
           Value: !Ref Environment
 
@@ -73,17 +226,17 @@ Resources:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
 
-  # Public Subnets
+  # Subnets Públicas
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs '']
-      CidrBlock: !Ref PublicSubnet1CIDR
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCidr, 6, 8]]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-public-subnet-1
+          Value: !Sub '${VPCName}-Public-Subnet-1'
         - Key: Environment
           Value: !Ref Environment
 
@@ -92,24 +245,24 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [1, !GetAZs '']
-      CidrBlock: !Ref PublicSubnet2CIDR
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCidr, 6, 8]]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-public-subnet-2
+          Value: !Sub '${VPCName}-Public-Subnet-2'
         - Key: Environment
           Value: !Ref Environment
 
-  # Private Subnets
+  # Subnets Privadas
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs '']
-      CidrBlock: !Ref PrivateSubnet1CIDR
+      CidrBlock: !Select [2, !Cidr [!Ref VPCCidr, 6, 8]]
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-private-subnet-1
+          Value: !Sub '${VPCName}-Private-Subnet-1'
         - Key: Environment
           Value: !Ref Environment
 
@@ -118,14 +271,14 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [1, !GetAZs '']
-      CidrBlock: !Ref PrivateSubnet2CIDR
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCidr, 6, 8]]
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-private-subnet-2
+          Value: !Sub '${VPCName}-Private-Subnet-2'
         - Key: Environment
           Value: !Ref Environment
 
-  # NAT Gateways
+  # Elastic IPs para NAT Gateways
   NatGateway1EIP:
     Type: AWS::EC2::EIP
     DependsOn: InternetGatewayAttachment
@@ -133,17 +286,23 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-nat-eip-1
+          Value: !Sub '${VPCName}-NAT-EIP-1'
+        - Key: Environment
+          Value: !Ref Environment
 
   NatGateway2EIP:
     Type: AWS::EC2::EIP
+    Condition: CreateTwoNATGateways
     DependsOn: InternetGatewayAttachment
     Properties:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-nat-eip-2
+          Value: !Sub '${VPCName}-NAT-EIP-2'
+        - Key: Environment
+          Value: !Ref Environment
 
+  # NAT Gateways
   NatGateway1:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -151,16 +310,21 @@ Resources:
       SubnetId: !Ref PublicSubnet1
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-nat-gateway-1
+          Value: !Sub '${VPCName}-NAT-Gateway-1'
+        - Key: Environment
+          Value: !Ref Environment
 
   NatGateway2:
     Type: AWS::EC2::NatGateway
+    Condition: CreateTwoNATGateways
     Properties:
       AllocationId: !GetAtt NatGateway2EIP.AllocationId
       SubnetId: !Ref PublicSubnet2
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-nat-gateway-2
+          Value: !Sub '${VPCName}-NAT-Gateway-2'
+        - Key: Environment
+          Value: !Ref Environment
 
   # Route Tables
   PublicRouteTable:
@@ -169,7 +333,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-public-routes
+          Value: !Sub '${VPCName}-Public-RT'
         - Key: Environment
           Value: !Ref Environment
 
@@ -193,13 +357,14 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
 
+  # Route Tables Privadas
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-private-routes-1
+          Value: !Sub '${VPCName}-Private-RT-1'
         - Key: Environment
           Value: !Ref Environment
 
@@ -222,7 +387,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-private-routes-2
+          Value: !Sub '${VPCName}-Private-RT-2'
         - Key: Environment
           Value: !Ref Environment
 
@@ -231,7 +396,7 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway2
+      NatGatewayId: !If [CreateTwoNATGateways, !Ref NatGateway2, !Ref NatGateway1]
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -243,46 +408,49 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${Environment}-alb-sg
-      GroupDescription: Security group for Application Load Balancer
+      GroupName: !Sub '${ALBName}-SG'
+      GroupDescription: 'Security Group para Application Load Balancer'
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP traffic
+          Description: 'HTTP access from anywhere'
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-          Description: HTTPS traffic
+          Description: 'HTTPS access from anywhere'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'All outbound traffic'
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-alb-sg
+          Value: !Sub '${ALBName}-SG'
         - Key: Environment
           Value: !Ref Environment
 
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${Environment}-ecs-sg
-      GroupDescription: Security group for ECS tasks
+      GroupName: !Sub '${ECSClusterName}-SG'
+      GroupDescription: 'Security Group para ECS Tasks'
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
-          ToPort: 80
+          ToPort: 65535
           SourceSecurityGroupId: !Ref ALBSecurityGroup
-          Description: HTTP from ALB
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-          Description: HTTP 8080 from ALB
+          Description: 'Access from ALB'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'All outbound traffic'
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-ecs-sg
+          Value: !Sub '${ECSClusterName}-SG'
         - Key: Environment
           Value: !Ref Environment
 
@@ -290,9 +458,10 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub ${Environment}-alb
-      Scheme: internet-facing
+      Name: !Ref ALBName
+      Scheme: !Ref ALBScheme
       Type: application
+      IpAddressType: ipv4
       Subnets:
         - !Ref PublicSubnet1
         - !Ref PublicSubnet2
@@ -300,48 +469,54 @@ Resources:
         - !Ref ALBSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-alb
+          Value: !Ref ALBName
         - Key: Environment
           Value: !Ref Environment
 
   # Target Groups
-  App1TargetGroup:
+  TargetGroup1:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${Environment}-app1-tg
-      Port: 80
-      Protocol: HTTP
+      Name: !Ref TargetGroup1Name
+      Port: !Ref TargetGroup1Port
+      Protocol: !Ref TargetGroup1Protocol
       VpcId: !Ref VPC
       TargetType: ip
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: !Ref TargetGroup1HealthCheckIntervalSeconds
+      HealthCheckPath: !Ref TargetGroup1HealthCheckPath
+      HealthCheckProtocol: !Ref TargetGroup1Protocol
+      HealthCheckTimeoutSeconds: !Ref TargetGroup1HealthCheckTimeoutSeconds
+      HealthyThresholdCount: !Ref TargetGroup1HealthyThresholdCount
+      UnhealthyThresholdCount: !Ref TargetGroup1UnhealthyThresholdCount
+      Matcher:
+        HttpCode: !Ref TargetGroup1HealthCheckStatusCodes
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-app1-tg
+          Value: !Ref TargetGroup1Name
         - Key: Environment
           Value: !Ref Environment
 
-  App2TargetGroup:
+  TargetGroup2:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${Environment}-app2-tg
-      Port: 80
-      Protocol: HTTP
+      Name: !Ref TargetGroup2Name
+      Port: !Ref TargetGroup2Port
+      Protocol: !Ref TargetGroup2Protocol
       VpcId: !Ref VPC
       TargetType: ip
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: !Ref TargetGroup2HealthCheckIntervalSeconds
+      HealthCheckPath: !Ref TargetGroup2HealthCheckPath
+      HealthCheckProtocol: !Ref TargetGroup2Protocol
+      HealthCheckTimeoutSeconds: !Ref TargetGroup2HealthCheckTimeoutSeconds
+      HealthyThresholdCount: !Ref TargetGroup2HealthyThresholdCount
+      UnhealthyThresholdCount: !Ref TargetGroup2UnhealthyThresholdCount
+      Matcher:
+        HttpCode: !Ref TargetGroup2HealthCheckStatusCodes
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-app2-tg
+          Value: !Ref TargetGroup2Name
         - Key: Environment
           Value: !Ref Environment
 
@@ -350,295 +525,118 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref App1TargetGroup
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: '404'
+            ContentType: 'text/plain'
+            MessageBody: 'Not Found'
       LoadBalancerArn: !Ref ApplicationLoadBalancer
-      Port: 80
-      Protocol: HTTP
-
-  # ALB Listener Rules
-  App1ListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref App1TargetGroup
-      Conditions:
-        - Field: path-pattern
-          Values: ['/app1*']
-      ListenerArn: !Ref ALBListener
-      Priority: 1
-
-  App2ListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref App2TargetGroup
-      Conditions:
-        - Field: path-pattern
-          Values: ['/app2*']
-      ListenerArn: !Ref ALBListener
-      Priority: 2
+      Port: !Ref ALBListenerPort
+      Protocol: !Ref ALBListenerProtocol
 
   # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub ${Environment}-cluster
+      ClusterName: !Ref ECSClusterName
       CapacityProviders:
         - FARGATE
         - FARGATE_SPOT
       DefaultCapacityProviderStrategy:
         - CapacityProvider: FARGATE
-          Weight: 1
+          Weight: !Ref ECSFargateWeight
         - CapacityProvider: FARGATE_SPOT
-          Weight: 4
+          Weight: !Ref ECSFargateSpotWeight
       ClusterSettings:
         - Name: containerInsights
-          Value: enabled
+          Value: !Ref EnableContainerInsights
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-cluster
-        - Key: Environment
-          Value: !Ref Environment
-
-  # ECS Task Execution Role
-  ECSTaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${Environment}-ecs-task-execution-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-ecs-task-execution-role
-        - Key: Environment
-          Value: !Ref Environment
-
-  # ECS Task Role
-  ECSTaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${Environment}-ecs-task-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CloudWatchLogs
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: '*'
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-ecs-task-role
-        - Key: Environment
-          Value: !Ref Environment
-
-  # CloudWatch Log Groups
-  App1LogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /ecs/${Environment}/app1
-      RetentionInDays: 7
-
-  App2LogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /ecs/${Environment}/app2
-      RetentionInDays: 7
-
-  # ECS Task Definitions
-  App1TaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub ${Environment}-app1
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      Cpu: 256
-      Memory: 512
-      ExecutionRoleArn: !Ref ECSTaskExecutionRole
-      TaskRoleArn: !Ref ECSTaskRole
-      ContainerDefinitions:
-        - Name: app1
-          Image: !Ref App1Image
-          PortMappings:
-            - ContainerPort: 80
-              Protocol: tcp
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref App1LogGroup
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: ecs
-          Essential: true
-          Environment:
-            - Name: APP_NAME
-              Value: Application1
-            - Name: ENVIRONMENT
-              Value: !Ref Environment
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-app1-task
-        - Key: Environment
-          Value: !Ref Environment
-
-  App2TaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub ${Environment}-app2
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      Cpu: 256
-      Memory: 512
-      ExecutionRoleArn: !Ref ECSTaskExecutionRole
-      TaskRoleArn: !Ref ECSTaskRole
-      ContainerDefinitions:
-        - Name: app2
-          Image: !Ref App2Image
-          PortMappings:
-            - ContainerPort: 80
-              Protocol: tcp
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref App2LogGroup
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: ecs
-          Essential: true
-          Environment:
-            - Name: APP_NAME
-              Value: Application2
-            - Name: ENVIRONMENT
-              Value: !Ref Environment
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-app2-task
-        - Key: Environment
-          Value: !Ref Environment
-
-  # ECS Services
-  App1Service:
-    Type: AWS::ECS::Service
-    DependsOn: ALBListener
-    Properties:
-      ServiceName: !Sub ${Environment}-app1-service
-      Cluster: !Ref ECSCluster
-      TaskDefinition: !Ref App1TaskDefinition
-      LaunchType: FARGATE
-      DesiredCount: 2
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          SecurityGroups:
-            - !Ref ECSSecurityGroup
-          Subnets:
-            - !Ref PrivateSubnet1
-            - !Ref PrivateSubnet2
-          AssignPublicIp: DISABLED
-      LoadBalancers:
-        - ContainerName: app1
-          ContainerPort: 80
-          TargetGroupArn: !Ref App1TargetGroup
-      DeploymentConfiguration:
-        MaximumPercent: 200
-        MinimumHealthyPercent: 100
-        DeploymentCircuitBreaker:
-          Enable: true
-          Rollback: true
-      EnableExecuteCommand: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-app1-service
-        - Key: Environment
-          Value: !Ref Environment
-
-  App2Service:
-    Type: AWS::ECS::Service
-    DependsOn: ALBListener
-    Properties:
-      ServiceName: !Sub ${Environment}-app2-service
-      Cluster: !Ref ECSCluster
-      TaskDefinition: !Ref App2TaskDefinition
-      LaunchType: FARGATE
-      DesiredCount: 2
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          SecurityGroups:
-            - !Ref ECSSecurityGroup
-          Subnets:
-            - !Ref PrivateSubnet1
-            - !Ref PrivateSubnet2
-          AssignPublicIp: DISABLED
-      LoadBalancers:
-        - ContainerName: app2
-          ContainerPort: 80
-          TargetGroupArn: !Ref App2TargetGroup
-      DeploymentConfiguration:
-        MaximumPercent: 200
-        MinimumHealthyPercent: 100
-        DeploymentCircuitBreaker:
-          Enable: true
-          Rollback: true
-      EnableExecuteCommand: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-app2-service
+          Value: !Ref ECSClusterName
         - Key: Environment
           Value: !Ref Environment
 
 Outputs:
   VPCId:
-    Description: VPC ID
+    Description: 'ID da VPC'
     Value: !Ref VPC
     Export:
-      Name: !Sub ${Environment}-vpc-id
+      Name: !Sub '${AWS::StackName}-VPC-ID'
 
-  ECSClusterName:
-    Description: ECS Cluster Name
-    Value: !Ref ECSCluster
+  PublicSubnet1Id:
+    Description: 'ID da Subnet Pública 1'
+    Value: !Ref PublicSubnet1
     Export:
-      Name: !Sub ${Environment}-ecs-cluster
+      Name: !Sub '${AWS::StackName}-PublicSubnet1-ID'
 
-  LoadBalancerDNS:
-    Description: Application Load Balancer DNS
+  PublicSubnet2Id:
+    Description: 'ID da Subnet Pública 2'
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet2-ID'
+
+  PrivateSubnet1Id:
+    Description: 'ID da Subnet Privada 1'
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnet1-ID'
+
+  PrivateSubnet2Id:
+    Description: 'ID da Subnet Privada 2'
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnet2-ID'
+
+  ALBSecurityGroupId:
+    Description: 'ID do Security Group do ALB'
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-SG-ID'
+
+  ECSSecurityGroupId:
+    Description: 'ID do Security Group do ECS'
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-ECS-SG-ID'
+
+  LoadBalancerArn:
+    Description: 'ARN do Application Load Balancer'
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-ARN'
+
+  LoadBalancerDNSName:
+    Description: 'DNS Name do Application Load Balancer'
     Value: !GetAtt ApplicationLoadBalancer.DNSName
     Export:
-      Name: !Sub ${Environment}-alb-dns
+      Name: !Sub '${AWS::StackName}-ALB-DNS'
 
-  App1URL:
-    Description: URL for Application 1
-    Value: !Sub http://${ApplicationLoadBalancer.DNSName}/app1
-
-  App2URL:
-    Description: URL for Application 2
-    Value: !Sub http://${ApplicationLoadBalancer.DNSName}/app2
-
-  App1ServiceName:
-    Description: ECS Service Name for App1
-    Value: !Ref App1Service
+  TargetGroup1Arn:
+    Description: 'ARN do Target Group 1'
+    Value: !Ref TargetGroup1
     Export:
-      Name: !Sub ${Environment}-app1-service
+      Name: !Sub '${AWS::StackName}-TG1-ARN'
 
-  App2ServiceName:
-    Description: ECS Service Name for App2
-    Value: !Ref App2Service
+  TargetGroup2Arn:
+    Description: 'ARN do Target Group 2'
+    Value: !Ref TargetGroup2
     Export:
-      Name: !Sub ${Environment}-app2-service
+      Name: !Sub '${AWS::StackName}-TG2-ARN'
+
+  ECSClusterName:
+    Description: 'Nome do ECS Cluster'
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ECS-Cluster-Name'
+
+  ECSClusterArn:
+    Description: 'ARN do ECS Cluster'
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ECS-Cluster-ARN'
+
+  ALBListenerArn:
+    Description: 'ARN do ALB Listener'
+    Value: !Ref ALBListener
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-Listener-ARN'
