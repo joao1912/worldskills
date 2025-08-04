@@ -1,0 +1,746 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Template base para infraestrutura EKS com VPC altamente disponível e configurável"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: "my-project"
+    Description: "Nome do projeto (usado como prefixo para recursos)"
+
+  Environment:
+    Type: String
+    Default: "dev"
+    AllowedValues: ["dev", "staging", "prod"]
+    Description: "Ambiente de deployment"
+
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "CIDR block para a VPC"
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/(\d|[1-2]\d|3[0-2])$'
+
+  AvailabilityZonesCount:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 3
+    Description: "Número de Availability Zones para distribuir a VPC"
+
+  NatGatewayCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 3
+    Description: "Número de NAT Gateways (1 para economia, 2+ para alta disponibilidade)"
+
+  App1Port:
+    Type: Number
+    Default: 3000
+    MinValue: 1
+    MaxValue: 65535
+    Description: "Porta da aplicação App1"
+
+  App1HealthPath:
+    Type: String
+    Default: "/health"
+    Description: "Rota de health check para App1"
+
+  App2Port:
+    Type: Number
+    Default: 8080
+    MinValue: 1
+    MaxValue: 65535
+    Description: "Porta da aplicação App2"
+
+  App2HealthPath:
+    Type: String
+    Default: "/api/health"
+    Description: "Rota de health check para App2"
+
+  EksClusterName:
+    Type: String
+    Default: "my-eks-cluster"
+    Description: "Nome do cluster EKS"
+
+  KubernetesVersion:
+    Type: String
+    Default: "1.29"
+    AllowedValues: ["1.28", "1.29", "1.30"]
+    Description: "Versão do Kubernetes"
+
+  NodeInstanceType:
+    Type: String
+    Default: "t3.medium"
+    AllowedValues:
+      - "t3.small"
+      - "t3.medium"
+      - "t3.large"
+      - "m5.large"
+      - "m5.xlarge"
+      - "m5.2xlarge"
+      - "c5.large"
+      - "c5.xlarge"
+    Description: "Tipo de instância dos worker nodes"
+
+  NodeGroupMinSize:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: "Número mínimo de worker nodes"
+
+  NodeGroupMaxSize:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 20
+    Description: "Número máximo de worker nodes"
+
+  NodeGroupDesiredSize:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+    Description: "Número desejado de worker nodes"
+
+  NodeDiskSize:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: "Tamanho do disco dos nodes em GB"
+
+  NodeAmiType:
+    Type: String
+    Default: "AL2_x86_64"
+    AllowedValues:
+      [
+        "AL2_x86_64",
+        "AL2_ARM_64",
+        "AL2_x86_64_GPU",
+        "AL2023_x86_64_STANDARD",
+        "AL2023_ARM_64_STANDARD",
+      ]
+    Description: "Tipo de AMI para os worker nodes"
+
+  EksClusterRoleArn:
+    Type: String
+    Default: ""
+    Description: "ARN da role existente para o EKS Cluster (deixe vazio para criar uma nova)"
+
+  EksNodeRoleArn:
+    Type: String
+    Default: ""
+    Description: "ARN da role existente para os EKS Nodes (deixe vazio para criar uma nova)"
+
+Conditions:
+  UseThreeAZs: !Equals [!Ref AvailabilityZonesCount, 3]
+  UseTwoNatGateways: !Or
+    - !Equals [!Ref NatGatewayCount, 2]
+    - !Equals [!Ref NatGatewayCount, 3]
+  UseThreeNatGateways: !Equals [!Ref NatGatewayCount, 3]
+  CreateEksClusterRole: !Equals [!Ref EksClusterRoleArn, ""]
+  CreateEksNodeRole: !Equals [!Ref EksNodeRoleArn, ""]
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-vpc"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-igw"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Subnets Públicas
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 6, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-subnet-1"
+        - Key: kubernetes.io/role/elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-subnet-2"
+        - Key: kubernetes.io/role/elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: UseThreeAZs
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-subnet-3"
+        - Key: kubernetes.io/role/elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Subnets Privadas
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, 8]]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-subnet-1"
+        - Key: kubernetes.io/role/internal-elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, 8]]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-subnet-2"
+        - Key: kubernetes.io/role/internal-elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: UseThreeAZs
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, 8]]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-subnet-3"
+        - Key: kubernetes.io/role/internal-elb
+          Value: "1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # NAT Gateways
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-eip-1"
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-1"
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    Condition: UseTwoNatGateways
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-eip-2"
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: UseTwoNatGateways
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-2"
+
+  NatGateway3EIP:
+    Type: AWS::EC2::EIP
+    Condition: UseThreeNatGateways
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-eip-3"
+
+  NatGateway3:
+    Type: AWS::EC2::NatGateway
+    Condition: UseThreeNatGateways
+    Properties:
+      AllocationId: !GetAtt NatGateway3EIP.AllocationId
+      SubnetId: !Ref PublicSubnet3
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-3"
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-routes"
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: UseThreeAZs
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet3
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-routes-1"
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-routes-2"
+
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !If [UseTwoNatGateways, !Ref NatGateway2, !Ref NatGateway1]
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: UseThreeAZs
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-routes-3"
+
+  DefaultPrivateRoute3:
+    Type: AWS::EC2::Route
+    Condition: UseThreeAZs
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        !If [UseThreeNatGateways, !Ref NatGateway3, !Ref NatGateway1]
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: UseThreeAZs
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      SubnetId: !Ref PrivateSubnet3
+
+  # Security Groups
+  EksClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for EKS cluster"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+          Description: "HTTPS from VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-eks-cluster-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for Application Load Balancer"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: "HTTP from anywhere"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "HTTPS from anywhere"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-alb-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  EksNodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for EKS worker nodes"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1025
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref EksClusterSecurityGroup
+          Description: "All traffic from cluster"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EksClusterSecurityGroup
+          Description: "HTTPS from cluster"
+        - IpProtocol: tcp
+          FromPort: !Ref App1Port
+          ToPort: !Ref App1Port
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: "App1 port from Load Balancer"
+        - IpProtocol: tcp
+          FromPort: !Ref App2Port
+          ToPort: !Ref App2Port
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: "App2 port from Load Balancer"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-eks-node-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # IAM Roles (Condicionais)
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Condition: CreateEksClusterRole
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-eks-cluster-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  EksNodeRole:
+    Type: AWS::IAM::Role
+    Condition: CreateEksNodeRole
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-eks-node-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # EKS Cluster
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-${EksClusterName}"
+      Version: !Ref KubernetesVersion
+      RoleArn: !If 
+        - CreateEksClusterRole
+        - !GetAtt EksClusterRole.Arn
+        - !Ref EksClusterRoleArn
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref EksClusterSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+          - !If [UseThreeAZs, !Ref PrivateSubnet3, !Ref "AWS::NoValue"]
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: true
+        PublicAccessCidrs:
+          - 0.0.0.0/0
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # EKS Node Group
+  EksNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn: EksCluster
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: !Sub "${ProjectName}-${Environment}-node-group"
+      NodeRole:
+        !If [CreateEksNodeRole, !GetAtt EksNodeRole.Arn, !Ref EksNodeRoleArn]
+      AmiType: !Ref NodeAmiType
+      InstanceTypes:
+        - !Ref NodeInstanceType
+      DiskSize: !Ref NodeDiskSize
+      ScalingConfig:
+        MinSize: !Ref NodeGroupMinSize
+        MaxSize: !Ref NodeGroupMaxSize
+        DesiredSize: !Ref NodeGroupDesiredSize
+      UpdateConfig:
+        MaxUnavailablePercentage: 25
+      Subnets:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !If [UseThreeAZs, !Ref PrivateSubnet3, !Ref "AWS::NoValue"]
+      Tags:
+        Environment: !Ref Environment
+        Project: !Ref ProjectName
+
+Outputs:
+  # VPC Outputs
+  VpcId:
+    Description: "ID da VPC"
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-vpc-id"
+
+  VpcCidr:
+    Description: "CIDR da VPC"
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-vpc-cidr"
+
+  # Subnet Outputs
+  PublicSubnets:
+    Description: "Lista das subnets públicas"
+    Value: !If
+      - UseThreeAZs
+      - !Join [
+          ",",
+          [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3],
+        ]
+      - !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-public-subnets"
+
+  PrivateSubnets:
+    Description: "Lista das subnets privadas"
+    Value: !If
+      - UseThreeAZs
+      - !Join [
+          ",",
+          [!Ref PrivateSubnet1, !Ref PrivateSubnet2, !Ref PrivateSubnet3],
+        ]
+      - !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-private-subnets"
+
+  # Security Group Outputs
+  EksClusterSecurityGroupId:
+    Description: "Security Group do cluster EKS"
+    Value: !Ref EksClusterSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-cluster-sg"
+
+  EksNodeSecurityGroupId:
+    Description: "Security Group dos nodes EKS"
+    Value: !Ref EksNodeSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-node-sg"
+
+  LoadBalancerSecurityGroupId:
+    Description: "Security Group do Load Balancer"
+    Value: !Ref LoadBalancerSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-alb-sg"
+
+  # EKS Outputs
+  EksClusterName:
+    Description: "Nome do cluster EKS"
+    Value: !Ref EksCluster
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-cluster-name"
+
+  EksClusterEndpoint:
+    Description: "Endpoint do cluster EKS"
+    Value: !GetAtt EksCluster.Endpoint
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-cluster-endpoint"
+
+  EksClusterArn:
+    Description: "ARN do cluster EKS"
+    Value: !GetAtt EksCluster.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-cluster-arn"
+
+  # Application Configuration Outputs
+  App1Port:
+    Description: "Porta configurada para App1"
+    Value: !Ref App1Port
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-app1-port"
+
+  App1HealthPath:
+    Description: "Rota de health check para App1"
+    Value: !Ref App1HealthPath
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-app1-health-path"
+
+  App2Port:
+    Description: "Porta configurada para App2"
+    Value: !Ref App2Port
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-app2-port"
+
+  App2HealthPath:
+    Description: "Rota de health check para App2"
+    Value: !Ref App2HealthPath
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-app2-health-path"
+
+  # IAM Roles Outputs
+  EksClusterRoleArn:
+    Description: "ARN da role do cluster EKS (criada ou fornecida)"
+    Value:
+      !If [
+        CreateEksClusterRole,
+        !GetAtt EksClusterRole.Arn,
+        !Ref EksClusterRoleArn,
+      ]
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-cluster-role-arn"
+
+  EksNodeRoleArn:
+    Description: "ARN da role dos nodes EKS (criada ou fornecida)"
+    Value: !If [CreateEksNodeRole, !GetAtt EksNodeRole.Arn, !Ref EksNodeRoleArn]
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-eks-node-role-arn"

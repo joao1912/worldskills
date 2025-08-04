@@ -1,0 +1,41 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - echo "Install Phase - if you need additional package, add it in this stage"
+  build:
+    commands:
+      # Get AWS Credential using STS Assume Role for kubectl
+      - echo "Setting Environment Variables related to AWS CLI for Kube Config Setup"          
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_ROLE_ARN --role-session-name eks-codebuild --duration-seconds 900)
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+
+      # Updating kubectl with your EKS Cluster              
+      - echo "Update Kube Config configuration"      
+      - aws eks update-kubeconfig --name $EKS_CLUSTERNAME
+
+      # Baixar o deployment.yaml do S3
+      - echo "Baixando deployment.yaml do S3"
+      - mkdir -p manifests
+      - aws s3 cp s3://$S3_BUCKET_NAME/$SERVICE_NAME/deployment.yaml manifests/deployment.yaml
+
+      # Apply Kubernetes manifests
+      - echo "Apply changes to kube manifests"            
+      - kubectl apply -f manifests/
+
+      # Forçar o rollout do deployment
+      - echo "Forçando rollout do deployment"
+      - kubectl rollout restart deployment/$DEPLOYMENT_NAME
+
+      - echo "All done!!!! Kubernetes changes applied and rollout triggered"
+
+      # Create Artifacts
+      - printf '[{"name":"deployment.yaml","imageUri":"%s"}]' $REPOSITORY_URI:$TAG > build.json
+
+artifacts:
+  files: 
+    - build.json   
+    - manifests/*
