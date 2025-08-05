@@ -1,0 +1,154 @@
+
+# Criar a Role 'CodeBuildEksRole' que vai ser assumida pelo codeBuild para poder manipular o cluster EKS.
+
+Definir essa policy:
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "eks:Describe*"
+            ],
+            "Resource": [
+                "<ARN-CLUSTER-EKS>"
+            ]
+        }
+    ]
+}
+
+Definir essa trust policy:
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::<ACCOUNT_ID>:root"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+
+
+
+#  Adicione a nova role(CodeBuildEksRole) no auth configMap do eks cluster.
+
+No terminal de onde tenha acesso ao cluster execute:
+
+# Check the aws-auth configmap 
+kubectl get configmap aws-auth -o yaml -n kube-system
+
+# Export your AWS Account(To get your aws account id run the following command aws sts get-caller-identity --query Account --output text)
+export ACCOUNT_ID=<aws account id>
+
+# Set the ROLE value
+ROLE="    - rolearn: arn:aws:iam::$ACCOUNT_ID:role/CodeBuildEKSRole\n      username: build\n      groups:\n        - system:masters"
+
+# Get the current aws-auth configMap data and add new role to it
+kubectl get -n kube-system configmap/aws-auth -o yaml | awk "/mapRoles: \|/{print;print \"$ROLE\";next}1" > /tmp/auth-patch.yml
+
+# Patch the aws-auth configmap with new role
+kubectl patch configmap/aws-auth -n kube-system --patch "$(cat /tmp/auth-patch.yml)"
+
+
+
+
+# Adapte essa buildspec.yml
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+version: 0.2
+phases:
+  install:
+    commands:
+      - echo "Install Phase - if you need additional package, add it in this stage"
+  build:
+    commands:
+      # Get AWS Credential using STS Assume Role for kubectl
+      - echo "Setting Environment Variables related to AWS CLI for Kube Config Setup"          
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_ROLE_ARN --role-session-name eks-codebuild --duration-seconds 900)
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+
+      # Updating kubectl with your EKS Cluster              
+      - echo "Update Kube Config configuration"      
+      - aws eks update-kubeconfig --name $EKS_CLUSTERNAME
+
+      # Baixar o deployment.yaml do S3
+      - echo "Baixando deployment.yaml do S3"
+      - mkdir -p manifests
+      - aws s3 cp s3://$S3_BUCKET_NAME/$SERVICE_NAME/deployment.yaml manifests/deployment.yaml
+
+      # Apply Kubernetes manifests
+      - echo "Apply changes to kube manifests"            
+      - kubectl apply -f manifests/
+
+      # Forçar o rollout do deployment
+      - echo "Forçando rollout do deployment"
+      - kubectl rollout restart deployment/$DEPLOYMENT_NAME
+
+      - echo "All done!!!! Kubernetes changes applied and rollout triggered"
+
+      # Create Artifacts
+      - printf '[{"name":"deployment.yaml","imageUri":"%s"}]' $REPOSITORY_URI:$TAG > build.json
+
+artifacts:
+  files: 
+    - build.json   
+    - manifests/*
+
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+
+
+# Crie a pipeline:
+  - Defina o acionamento (ECR, S3 e etc)
+  - Crie o projeto do codeBuild e cole o buildspec.yml
+  - Defina as variaveis usadas no buildspec
+
+
+
+
+
+# Crie uma inline policy na Role criada pelo codeBuild para permitir que ela assuma a Role 'CodeBuildEksRole'
+
+Policy:
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Resource": "<ARN-ROLE-CodeBuildEKSRole>"
+        }
+    ]
+}
+
+
+
+
+
+# Se necessario altere a Trust Policy da role CodeBuildEksRole para permitir explicitamente que a role criada pelo codeBuild posso assumila.
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/service-role/<codebuild-root-build-project-service-role>"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
